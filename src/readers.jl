@@ -96,7 +96,8 @@ function unsafe_read!(source::MP3FileSource, buf::Array, frameoffset, framecount
         nr = mpg123_read!(mpg123, readbuf, n * encsize * nchans)
         nr = div(nr, encsize * nchans)
 
-        transpose!(view(buf, (1:nr)+nread+frameoffset, :), view(readbuf, :, 1:nr))
+        copy_deinterleave(buf, nread+frameoffset+1, readbuf, 1, nr, nchans)
+        # transpose!(view(buf, (1:nr)+nread+frameoffset, :), view(readbuf, :, 1:nr))
 
         source.pos += nr
         nread += nr
@@ -104,6 +105,62 @@ function unsafe_read!(source::MP3FileSource, buf::Array, frameoffset, framecount
     end
 
     nread
+end
+
+# """copies `frames` frames of data from `src` (non-interleaved) to `dest`
+# (interleaved), starting from the given frames, and assuming that both arrays
+# represent `channels`-channel buffers. The arrays should not be
+# overlapped in memory."""
+# function copy_interleave(dest, deststart, src, srcstart, frames, channels)
+#     srcframes = div(length(src), channels)
+#     destframes = div(length(dest), channels)
+#     if srcstart + frames - 1 > srcframes
+#         error("src array is too short ($srcframes) frames")
+#     end
+#     if deststart + frames - 1 > destframes
+#         error("dest array is too short ($destframes) frames")
+#     end
+#     @inbounds begin
+#         for ch in 1:channels
+#             srcidx = (ch-1)*srcframes+srcstart
+#             destidx = (deststart-1)*channels+ch
+#             for _ in 1:frames
+#                 dest[destidx] = src[srcidx]
+#                 srcidx += 1
+#                 destidx += channels
+#             end
+#         end
+#     end
+#
+#     dest
+# end
+
+"""copies `frames` frames of data from `src` (interleaved) to `dest`
+(non-interleaved), starting from the given frames, and assuming that both
+arrays represent `channels`-channel buffers. The arrays should not be
+overlapped in memory."""
+function copy_deinterleave(dest, deststart, src, srcstart, frames, channels)
+    srcframes = div(length(src), channels)
+    destframes = div(length(dest), channels)
+    if srcstart + frames - 1 > srcframes
+        error("src array is too short ($srcframes) frames")
+    end
+    if deststart + frames - 1 > destframes
+        error("dest array is too short ($destframes) frames")
+    end
+    @inbounds begin
+        for ch in 1:channels
+            destidx = (ch-1)*destframes+deststart
+            srcidx = (srcstart-1)*channels+ch
+            for _ in 1:frames
+                dest[destidx] = src[srcidx]
+                srcidx += channels
+                destidx += 1
+            end
+        end
+    end
+
+    dest
 end
 
 @inline function Base.readall(source::MP3FileSource)
